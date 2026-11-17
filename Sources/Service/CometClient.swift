@@ -73,40 +73,36 @@ final class CometClient: ObservableObject {
 
     private func subscribeToServerStatus() async throws {
         guard let clientId else { return }
-        let serverStatusChannel = "/\(clientId)/slim/serverstatus"
-        try await subscribe(channel: "/slim/subscribe", response: serverStatusChannel,
-                             request: ["players": 0, "player": 0, "subscribe": "60"])
+        let responseChannel = "/\(clientId)/slim/serverstatus"
+        try await subscribe(channel: "/slim/subscribe", response: responseChannel,
+                            playerId: "",
+                            cmd: ["serverstatus", "0", "255", "subscribe:60"])
     }
 
     func subscribeToPlayer(_ playerId: String) async throws {
         guard let clientId else { return }
         let playerStatusChannel = "/\(clientId)/slim/playerstatus/\(playerId)"
-        let menuStatusChannel = "/\(clientId)/slim/menustatus/\(playerId)"
-
         try await subscribe(channel: "/slim/subscribe", response: playerStatusChannel,
-                             request: ["subscribe": "30"], playerId: playerId,
-                             cmd: ["status", "-", "1", "menu:menu"])
-        try await subscribe(channel: "/slim/subscribe", response: menuStatusChannel,
-                             request: ["subscribe": "30"], playerId: playerId,
-                             cmd: ["menu", "0", "100"])
+                            playerId: playerId,
+                            cmd: ["status", "-", "255", "menu:menu", "subscribe:30", "tags:aclKNoYLT"])
     }
 
-    private func subscribe(channel: String, response: String, request: [String: Any],
-                           playerId: String = "", cmd: [String] = ["serverstatus", "0", "0"]) async throws {
+    private func subscribe(channel: String, response: String,
+                           playerId: String = "", cmd: [String]) async throws {
         guard let cometURL, let clientId else { return }
         let msg: [String: Any] = [
             "channel": channel,
             "clientId": clientId,
             "data": [
                 "response": response,
-                "request": [playerId, cmd],
+                "request": [playerId, cmd] as [Any],
                 "clientId": clientId
             ] as [String: Any]
         ]
         _ = try await post(cometURL, messages: [msg])
     }
 
-    // One-shot request to LMS
+    // One-shot request to LMS — LMS returns the response in the same HTTP reply
     func request(playerId: String = "", cmd: [String], params: [Any] = []) async throws -> [[String: Any]] {
         guard let cometURL, let clientId else { throw CometError.notConnected }
         correlationId += 1
@@ -121,7 +117,14 @@ final class CometClient: ObservableObject {
             ] as [String: Any]
         ]
         let responses = try await post(cometURL, messages: [msg])
-        // Response arrives via long-poll; return any matching data
+        // LMS echoes the response on responseChannel in the same HTTP reply
+        for response in responses {
+            if let ch = response["channel"] as? String, ch == responseChannel,
+               let data = response["data"] as? [String: Any] {
+                return [data]
+            }
+        }
+        // Fallback: any dict under "data"
         return responses.compactMap { $0["data"] as? [String: Any] }
     }
 
