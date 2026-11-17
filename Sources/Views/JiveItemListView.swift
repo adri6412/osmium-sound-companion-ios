@@ -10,6 +10,9 @@ struct JiveItemListView: View {
     @State private var totalCount = 0
     @State private var error: String?
 
+    private var isAlbumBrowse: Bool { item.goAction?.cmd.first == "albums" }
+    private let gridColumns = [GridItem(.adaptive(minimum: 150), spacing: 12)]
+
     var body: some View {
         Group {
             if isLoading && items.isEmpty {
@@ -21,27 +24,12 @@ struct JiveItemListView: View {
                     systemImage: "exclamationmark.triangle",
                     description: Text(error)
                 )
-                .refreshable { await loadItems() }
             } else if items.isEmpty && !isLoading {
                 ContentUnavailableView("Empty", systemImage: "tray")
-                    .refreshable { await loadItems() }
+            } else if isAlbumBrowse {
+                albumGrid
             } else {
-                List {
-                    ForEach(items) { child in
-                        BrowseItemRow(item: child)
-                            .onAppear {
-                                if child.id == items.last?.id && items.count < totalCount {
-                                    Task { await loadMore() }
-                                }
-                            }
-                    }
-                    if isLoading {
-                        HStack { Spacer(); ProgressView(); Spacer() }
-                            .listRowBackground(Color.clear)
-                    }
-                }
-                .listStyle(.plain)
-                .refreshable { await loadItems() }
+                itemList
             }
         }
         .navigationTitle(title)
@@ -67,6 +55,65 @@ struct JiveItemListView: View {
             }
         }
         .task { await loadItems() }
+    }
+
+    // MARK: - Album Grid
+
+    private var albumGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: gridColumns, spacing: 16) {
+                ForEach(items) { child in
+                    NavigationLink {
+                        JiveItemListView(title: child.name, item: child)
+                    } label: {
+                        AlbumCell(item: child, serverURL: service.serverURL)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { albumContextMenu(child) }
+                    .onAppear {
+                        if child.id == items.last?.id && items.count < totalCount {
+                            Task { await loadMore() }
+                        }
+                    }
+                }
+            }
+            .padding(12)
+            if isLoading { ProgressView().padding() }
+        }
+    }
+
+    // MARK: - Item List
+
+    private var itemList: some View {
+        List {
+            ForEach(items) { child in
+                BrowseItemRow(item: child)
+                    .onAppear {
+                        if child.id == items.last?.id && items.count < totalCount {
+                            Task { await loadMore() }
+                        }
+                    }
+            }
+            if isLoading {
+                HStack { Spacer(); ProgressView(); Spacer() }
+                    .listRowBackground(Color.clear)
+            }
+        }
+        .listStyle(.plain)
+        .refreshable { await loadItems() }
+    }
+
+    @ViewBuilder
+    private func albumContextMenu(_ child: JiveItem) -> some View {
+        if let play = child.playAction {
+            Button { service.doAction(play) } label: { Label("Play Now", systemImage: "play.fill") }
+        }
+        if let insert = child.insertAction {
+            Button { service.doAction(insert) } label: { Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
+        }
+        if let add = child.addAction {
+            Button { service.doAction(add) } label: { Label("Add to Queue", systemImage: "text.badge.plus") }
+        }
     }
 
     private func loadItems() async {
@@ -130,7 +177,12 @@ struct BrowseItemRow: View {
     private var contextMenuButtons: some View {
         if let play = item.playAction {
             Button { service.doAction(play) } label: {
-                Label("Play", systemImage: "play.fill")
+                Label("Play Now", systemImage: "play.fill")
+            }
+        }
+        if let insert = item.insertAction {
+            Button { service.doAction(insert) } label: {
+                Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
         }
         if let add = item.addAction {
@@ -221,5 +273,65 @@ struct JiveItemContent: View {
 
     var body: some View {
         BrowseItemContent(item: item)
+    }
+}
+
+// MARK: - Album Grid Cell
+
+struct AlbumCell: View {
+    let item: JiveItem
+    let serverURL: URL?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            artworkView
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+
+            Text(item.name)
+                .font(.caption).bold()
+                .lineLimit(2)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+
+            if !item.subtitle.isEmpty {
+                Text(item.subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var artworkView: some View {
+        if let url = artworkURL {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let img): img.resizable().aspectRatio(1, contentMode: .fill)
+                default: placeholder
+                }
+            }
+        } else {
+            placeholder
+        }
+    }
+
+    private var artworkURL: URL? {
+        guard let serverURL else { return nil }
+        if let iconId = item.iconId, !iconId.isEmpty {
+            return Util.artworkURL(serverURL: serverURL, itemId: iconId, size: 300)
+        }
+        return serverURL.appendingPathComponent("music/\(item.id)/cover_300x300_m.png")
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            Rectangle().fill(Color.secondary.opacity(0.1))
+            Image(systemName: "square.stack")
+                .font(.largeTitle)
+                .foregroundStyle(Color.secondary.opacity(0.5))
+        }
     }
 }

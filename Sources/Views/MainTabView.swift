@@ -14,23 +14,29 @@ struct MainTabView: View {
                     }
                     .tag(0)
 
+                SearchView()
+                    .tabItem {
+                        Label("Search", systemImage: "magnifyingglass")
+                    }
+                    .tag(1)
+
                 CurrentPlaylistView()
                     .tabItem {
                         Label("Queue", systemImage: "list.bullet")
                     }
-                    .tag(1)
+                    .tag(2)
 
                 PlayerListView()
                     .tabItem {
                         Label("Players", systemImage: "speaker.wave.3.fill")
                     }
-                    .tag(2)
+                    .tag(3)
 
                 SettingsView()
                     .tabItem {
                         Label("Settings", systemImage: "gearshape.fill")
                     }
-                    .tag(3)
+                    .tag(4)
             }
 
             // Mini Now Playing bar

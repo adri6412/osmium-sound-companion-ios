@@ -397,4 +397,21 @@ final class LyrionService {
         }
         return ([], 0)
     }
+
+    // MARK: - Search
+
+    func searchLibrary(query: String) async throws -> SearchResults {
+        let data = try await rpc.request(cmd: ["search", "0", "50", "term:\(query)", "tags:aclKNoYLT"])
+        let albums = (data["albums_loop"] as? [[String: Any]] ?? []).map(JiveItem.fromAlbum)
+        let artists = (data["contributors_loop"] as? [[String: Any]] ?? []).map(JiveItem.fromArtist)
+        let tracks = (data["tracks_loop"] as? [[String: Any]] ?? []).map(JiveItem.fromTrack)
+        return SearchResults(albums: albums, artists: artists, tracks: tracks)
+    }
+}
+
+struct SearchResults: Sendable {
+    let albums: [JiveItem]
+    let artists: [JiveItem]
+    let tracks: [JiveItem]
+    var isEmpty: Bool { albums.isEmpty && artists.isEmpty && tracks.isEmpty }
 }
