@@ -3,6 +3,7 @@ import Foundation
 struct JiveItem: Identifiable, Sendable {
     let id: String
     let name: String
+    let subtitle: String
     let type: String?
     let icon: String?
     let iconId: String?
@@ -19,6 +20,7 @@ struct JiveItem: Identifiable, Sendable {
     init(record: [String: Any]) {
         id = Util.string(record, "id") ?? UUID().uuidString
         name = Util.string(record, "name") ?? Util.string(record, "title") ?? ""
+        subtitle = Util.string(record, "subtitle") ?? ""
         type = Util.string(record, "type")
         icon = Util.string(record, "icon")
         iconId = Util.string(record, "iconId")
@@ -27,21 +29,11 @@ struct JiveItem: Identifiable, Sendable {
         isANode = type == "node"
 
         if let actions = record["actions"] as? [String: Any] {
-            if let go = actions["go"] as? [String: Any] {
-                goAction = Action(record: go)
-            }
-            if let doAct = actions["do"] as? [String: Any] {
-                doAction = Action(record: doAct)
-            }
-            if let more = actions["more"] as? [String: Any] {
-                moreAction = Action(record: more)
-            }
-            if let play = actions["play"] as? [String: Any] {
-                playAction = Action(record: play)
-            }
-            if let add = actions["add"] as? [String: Any] {
-                addAction = Action(record: add)
-            }
+            if let go = actions["go"] as? [String: Any] { goAction = Action(record: go) }
+            if let doAct = actions["do"] as? [String: Any] { doAction = Action(record: doAct) }
+            if let more = actions["more"] as? [String: Any] { moreAction = Action(record: more) }
+            if let play = actions["play"] as? [String: Any] { playAction = Action(record: play) }
+            if let add = actions["add"] as? [String: Any] { addAction = Action(record: add) }
         }
 
         if let inputSpec = record["input"] as? [String: Any] {
@@ -51,6 +43,90 @@ struct JiveItem: Identifiable, Sendable {
 
     var browsable: Bool { goAction != nil || hasSubItems }
     var playable: Bool { playAction != nil || doAction != nil }
+
+    // MARK: - Factory methods for LMS browse results
+
+    static func fromAlbum(_ r: [String: Any]) -> JiveItem {
+        let id = Util.string(r, "id") ?? UUID().uuidString
+        let name = Util.string(r, "album") ?? Util.string(r, "name") ?? ""
+        let artist = Util.string(r, "artist") ?? Util.string(r, "albumartist") ?? ""
+        let artwork = Util.string(r, "artwork_track_id") ?? Util.string(r, "coverid") ?? id
+        var rec: [String: Any] = [
+            "id": id, "name": name, "subtitle": artist, "type": "album",
+            "iconId": artwork,
+            "actions": [
+                "go":   ["cmd": ["titles", "0", "100", "album_id:\(id)", "tags:aclKNoYLT"]],
+                "play": ["cmd": ["playlistcontrol", "cmd:load", "album_id:\(id)"]],
+                "add":  ["cmd": ["playlistcontrol", "cmd:add",  "album_id:\(id)"]]
+            ] as [String: Any]
+        ]
+        _ = rec  // suppress warning
+        return JiveItem(record: rec)
+    }
+
+    static func fromArtist(_ r: [String: Any]) -> JiveItem {
+        let id = Util.string(r, "id") ?? UUID().uuidString
+        let name = Util.string(r, "artist") ?? Util.string(r, "contributor") ?? Util.string(r, "name") ?? ""
+        var rec: [String: Any] = [
+            "id": id, "name": name, "type": "artist",
+            "actions": [
+                "go":   ["cmd": ["albums", "0", "100", "artist_id:\(id)", "tags:lajKAS"]],
+                "play": ["cmd": ["playlistcontrol", "cmd:load", "contributor_id:\(id)"]],
+                "add":  ["cmd": ["playlistcontrol", "cmd:add",  "contributor_id:\(id)"]]
+            ] as [String: Any]
+        ]
+        _ = rec
+        return JiveItem(record: rec)
+    }
+
+    static func fromGenre(_ r: [String: Any]) -> JiveItem {
+        let id = Util.string(r, "id") ?? UUID().uuidString
+        let name = Util.string(r, "genre") ?? Util.string(r, "name") ?? ""
+        var rec: [String: Any] = [
+            "id": id, "name": name, "type": "genre",
+            "actions": [
+                "go":   ["cmd": ["artists", "0", "100", "genre_id:\(id)", "tags:s"]],
+                "play": ["cmd": ["playlistcontrol", "cmd:load", "genre_id:\(id)"]],
+                "add":  ["cmd": ["playlistcontrol", "cmd:add",  "genre_id:\(id)"]]
+            ] as [String: Any]
+        ]
+        _ = rec
+        return JiveItem(record: rec)
+    }
+
+    static func fromPlaylist(_ r: [String: Any]) -> JiveItem {
+        let id = Util.string(r, "id") ?? UUID().uuidString
+        let name = Util.string(r, "playlist") ?? Util.string(r, "name") ?? ""
+        var rec: [String: Any] = [
+            "id": id, "name": name, "type": "playlist",
+            "actions": [
+                "go":   ["cmd": ["playlists", "tracks", "0", "100", "playlist_id:\(id)", "tags:aclKNoYLT"]],
+                "play": ["cmd": ["playlistcontrol", "cmd:load", "playlist_id:\(id)"]],
+                "add":  ["cmd": ["playlistcontrol", "cmd:add",  "playlist_id:\(id)"]]
+            ] as [String: Any]
+        ]
+        _ = rec
+        return JiveItem(record: rec)
+    }
+
+    static func fromTrack(_ r: [String: Any]) -> JiveItem {
+        let id = Util.string(r, "id") ?? UUID().uuidString
+        let title = Util.string(r, "title") ?? Util.string(r, "name") ?? ""
+        let artist = Util.string(r, "artist") ?? ""
+        let album = Util.string(r, "album") ?? ""
+        let coverid = Util.string(r, "coverid") ?? Util.string(r, "artwork_track_id") ?? id
+        let sub = [artist, album].filter { !$0.isEmpty }.joined(separator: " — ")
+        var rec: [String: Any] = [
+            "id": id, "name": title, "subtitle": sub, "type": "music",
+            "iconId": coverid,
+            "actions": [
+                "play": ["cmd": ["playlistcontrol", "cmd:load", "track_id:\(id)"]],
+                "add":  ["cmd": ["playlistcontrol", "cmd:add",  "track_id:\(id)"]]
+            ] as [String: Any]
+        ]
+        _ = rec
+        return JiveItem(record: rec)
+    }
 }
 
 struct InputSpec: Sendable {

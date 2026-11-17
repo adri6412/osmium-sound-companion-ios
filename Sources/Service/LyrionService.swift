@@ -163,8 +163,6 @@ final class LyrionService {
     }
 
     func fetchHomeMenu() async throws -> [JiveItem] {
-        // Build static library sections using standard LMS browse commands
-        // (the Jive 'menu' command only works with SqueezeOS/Jive-registered players)
         func item(_ id: String, _ name: String, _ type: String, cmd: [String]) -> JiveItem {
             JiveItem(record: [
                 "id": id, "name": name, "type": type,
@@ -177,6 +175,8 @@ final class LyrionService {
             item("genres",    "Genres",    "genre",    cmd: ["genres",    "0", "100"]),
             item("titles",    "Tracks",    "music",    cmd: ["titles",    "0", "100", "tags:aclKNoYLT"]),
             item("playlists", "Playlists", "playlist", cmd: ["playlists", "0", "100"]),
+            item("radios",    "Internet Radio", "radio", cmd: ["radios",   "0", "100"]),
+            item("apps",      "Apps",      "node",     cmd: ["apps",      "0", "100"]),
         ]
     }
 
@@ -369,14 +369,31 @@ final class LyrionService {
     }
 
     private func parseJiveItems(from data: [String: Any]) -> (items: [JiveItem], total: Int) {
-        let keys = ["item_loop", "albums_loop", "titles_loop", "playlists_loop",
-                    "genres_loop", "artists_loop", "contributors_loop"]
-        for key in keys {
-            if let loop = data[key] as? [[String: Any]] {
-                let items = loop.map { JiveItem(record: $0) }
-                let total = Util.int(data, "count") ?? items.count
-                return (items, total)
-            }
+        let total = Util.int(data, "count") ?? 0
+        if let loop = data["albums_loop"] as? [[String: Any]] {
+            return (loop.map { JiveItem.fromAlbum($0) }, max(total, loop.count))
+        }
+        if let loop = data["artists_loop"] as? [[String: Any]] {
+            return (loop.map { JiveItem.fromArtist($0) }, max(total, loop.count))
+        }
+        if let loop = data["contributors_loop"] as? [[String: Any]] {
+            return (loop.map { JiveItem.fromArtist($0) }, max(total, loop.count))
+        }
+        if let loop = data["genres_loop"] as? [[String: Any]] {
+            return (loop.map { JiveItem.fromGenre($0) }, max(total, loop.count))
+        }
+        if let loop = data["playlists_loop"] as? [[String: Any]] {
+            return (loop.map { JiveItem.fromPlaylist($0) }, max(total, loop.count))
+        }
+        if let loop = data["titles_loop"] as? [[String: Any]] {
+            return (loop.map { JiveItem.fromTrack($0) }, max(total, loop.count))
+        }
+        if let loop = data["playlisttracks_loop"] as? [[String: Any]] {
+            return (loop.map { JiveItem.fromTrack($0) }, max(total, loop.count))
+        }
+        if let loop = data["item_loop"] as? [[String: Any]] {
+            let items = loop.map { JiveItem(record: $0) }
+            return (items, max(total, items.count))
         }
         return ([], 0)
     }

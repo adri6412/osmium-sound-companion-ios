@@ -11,7 +11,9 @@ struct CurrentTrack: Sendable {
     let year: String
     let trackNum: Int
     let bitRate: String
-    let sampleRate: String
+    let sampleRate: Int
+    let sampleSize: Int
+    let codec: String
     let url: String
 
     init(record: [String: Any]) {
@@ -27,7 +29,9 @@ struct CurrentTrack: Sendable {
         year = Util.string(record, "year") ?? ""
         trackNum = Util.int(record, "tracknum") ?? 1
         bitRate = Util.string(record, "bitrate") ?? ""
-        sampleRate = Util.string(record, "samplerate") ?? ""
+        sampleRate = Util.int(record, "samplerate") ?? 0
+        sampleSize = Util.int(record, "samplesize") ?? 0
+        codec = Util.string(record, "type") ?? ""
         url = Util.string(record, "url") ?? ""
     }
 }
