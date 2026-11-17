@@ -49,7 +49,7 @@ struct CurrentPlaylistView: View {
             .refreshable { await loadPlaylist() }
         }
         .task { await loadPlaylist() }
-        .onChange(of: service.activePlayer?.id) { await loadPlaylist() }
+        .onChange(of: service.activePlayer?.id) { _ in Task { await loadPlaylist() } }
     }
 
     private func loadPlaylist() async {
