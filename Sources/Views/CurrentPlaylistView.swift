@@ -1,55 +1,62 @@
 import SwiftUI
 
 struct CurrentPlaylistView: View {
+    var body: some View {
+        NavigationStack {
+            QueueListView()
+        }
+    }
+}
+
+struct QueueListView: View {
     @Environment(LyrionService.self) private var service
     @State private var songs: [Song] = []
     @State private var total = 0
     @State private var isLoading = false
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if isLoading && songs.isEmpty {
-                    ProgressView("Loading…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if songs.isEmpty {
-                    ContentUnavailableView("Queue is Empty", systemImage: "music.note.list")
-                } else {
-                    List {
-                        ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                            SongRow(song: song, index: index)
-                                .onAppear {
-                                    if song.id == songs.last?.id && songs.count < total {
-                                        Task { await loadMore() }
-                                    }
+        Group {
+            if isLoading && songs.isEmpty {
+                ProgressView("Loading…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if songs.isEmpty {
+                ContentUnavailableView("Queue is Empty", systemImage: "music.note.list")
+            } else {
+                List {
+                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+                        SongRow(song: song, index: index)
+                            .onAppear {
+                                if song.id == songs.last?.id && songs.count < total {
+                                    Task { await loadMore() }
                                 }
-                        }
-                        .onMove { from, to in moveSongs(from: from, to: to) }
-                        .onDelete { indexSet in deleteSongs(at: indexSet) }
+                            }
                     }
-                    .listStyle(.plain)
+                    .onMove { from, to in moveSongs(from: from, to: to) }
+                    .onDelete { indexSet in deleteSongs(at: indexSet) }
                 }
+                .listStyle(.plain)
             }
-            .navigationTitle("Queue")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                EditButton()
-                if !songs.isEmpty {
-                    Button(role: .destructive) {
-                        Task {
-                            service.playlistClear()
-                            songs = []
-                            total = 0
-                        }
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                }
-            }
-            .refreshable { await loadPlaylist() }
         }
+        .navigationTitle("Queue")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            EditButton()
+            if !songs.isEmpty {
+                Button(role: .destructive) {
+                    Task {
+                        service.playlistClear()
+                        songs = []
+                        total = 0
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                }
+            }
+        }
+        .refreshable { await loadPlaylist() }
         .task { await loadPlaylist() }
         .onChange(of: service.activePlayer?.id) { _ in Task { await loadPlaylist() } }
+        .onChange(of: service.currentTrack?.id) { _ in Task { await loadPlaylist() } }
     }
 
     private func loadPlaylist() async {

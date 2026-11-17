@@ -25,6 +25,10 @@ final class LyrionService {
     var repeatStatus: RepeatStatus = .none
     var currentTimeSecond: Double = 0
     var currentTrackDuration: Int = 0
+    // Bumped on every status update so views can resync even when the values are unchanged
+    var statusRevision = 0
+
+    static let playerStatusTags = "tags:acdeKlNortTIuxy"
 
     private let comet = CometClient()
     private let rpc = LmsRpcClient()
@@ -74,25 +78,18 @@ final class LyrionService {
 
     func setActivePlayer(_ player: Player) {
         activePlayer = player
-        Task {
-            try? await comet.subscribeToPlayer(player.id)
-            await loadInitialPlayerStatus(player: player)
-        }
+        currentTrack = nil
         syncFromActivePlayer()
+        Task {
+            await refreshPlayerStatus(player.id)
+            try? await comet.subscribeToPlayer(player.id)
+        }
     }
 
-    private func loadInitialPlayerStatus(player: Player) async {
-        do {
-            let data = try await rpc.request(playerId: player.id,
-                                             cmd: ["status", "0", "1", "tags:aclKNoYLT"])
-            player.playerState.update(from: data)
-            if player.id == activePlayer?.id {
-                syncFromActivePlayer()
-                if let loop = data["playlist_loop"] as? [[String: Any]], let first = loop.first {
-                    currentTrack = CurrentTrack(record: first)
-                }
-            }
-        } catch {}
+    private func refreshPlayerStatus(_ playerId: String) async {
+        guard let data = try? await rpc.request(playerId: playerId,
+                                                cmd: ["status", "-", "1", Self.playerStatusTags]) else { return }
+        handlePlayerStatus(playerId: playerId, data: data)
     }
 
     func togglePausePlay() {
@@ -200,7 +197,7 @@ final class LyrionService {
     func fetchCurrentPlaylist(start: Int = 0) async throws -> (songs: [Song], total: Int) {
         guard let player = activePlayer else { return ([], 0) }
         let data = try await rpc.request(playerId: player.id,
-                                         cmd: ["status", "\(start)", "100", "tags:aclKNoYLT"])
+                                         cmd: ["status", "\(start)", "100", Self.playerStatusTags])
         let loop = (data["playlist_loop"] as? [[String: Any]]) ?? []
         let songs = loop.map { Song(record: $0) }
         let total = Util.int(data, "playlist_tracks") ?? songs.count
@@ -217,9 +214,9 @@ final class LyrionService {
         guard let player = activePlayer else { return }
         Task {
             try? await sendPlayerCommand(player: player.id, cmd: action.cmd)
-            // Refresh track info after a short delay to reflect the new playback state
+            // Loading a new playlist takes LMS a moment before the new track shows up in status
             try? await Task.sleep(for: .milliseconds(800))
-            await loadInitialPlayerStatus(player: player)
+            await refreshPlayerStatus(player.id)
         }
     }
 
@@ -313,6 +310,7 @@ final class LyrionService {
 
     private func sendPlayerCommand(player: String, cmd: [String]) async throws {
         _ = try await rpc.request(playerId: player, cmd: cmd)
+        await refreshPlayerStatus(player)
     }
 
     private func loadInitialServerStatus() async {
@@ -371,12 +369,17 @@ final class LyrionService {
     private func handlePlayerStatus(playerId: String, data: [String: Any]) {
         guard let player = players.first(where: { $0.id == playerId }) else { return }
         player.playerState.update(from: data)
+        guard player.id == activePlayer?.id else { return }
 
-        if player.id == activePlayer?.id {
-            syncFromActivePlayer()
-            if let trackData = data["playlist_loop"] as? [[String: Any]], let first = trackData.first {
-                currentTrack = CurrentTrack(record: first)
+        syncFromActivePlayer()
+        statusRevision += 1
+        if var record = (data["playlist_loop"] as? [[String: Any]])?.first {
+            if let remote = data["remoteMeta"] as? [String: Any] {
+                record.merge(remote) { _, new in new }
             }
+            currentTrack = CurrentTrack(record: record)
+        } else if data["mode"] != nil, (Util.int(data, "playlist_tracks") ?? 0) == 0 {
+            currentTrack = nil
         }
     }
 

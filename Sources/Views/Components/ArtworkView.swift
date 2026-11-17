@@ -7,20 +7,16 @@ struct ArtworkView: View {
 
     private var artworkURL: URL? {
         guard let track, let serverURL else { return nil }
-        // LMS artwork URL patterns
         if !track.artworkUrl.isEmpty {
             if track.artworkUrl.hasPrefix("http") {
                 return URL(string: track.artworkUrl)
             }
-            return serverURL.appendingPathComponent(track.artworkUrl)
+            let path = track.artworkUrl.hasPrefix("/") ? track.artworkUrl : "/" + track.artworkUrl
+            return URL(string: path, relativeTo: serverURL)
         }
-        if !track.albumId.isEmpty {
-            return serverURL.appendingPathComponent("music/\(track.albumId)/cover_\(size)x\(size)_m.png")
-        }
-        if !track.id.isEmpty {
-            return serverURL.appendingPathComponent("music/\(track.id)/cover_\(size)x\(size)_m.png")
-        }
-        return nil
+        return Util.artworkURL(serverURL: serverURL,
+                               itemId: track.coverId.isEmpty ? track.id : track.coverId,
+                               size: size)
     }
 
     var body: some View {

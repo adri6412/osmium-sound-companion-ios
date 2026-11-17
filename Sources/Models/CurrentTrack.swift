@@ -7,6 +7,7 @@ struct CurrentTrack: Sendable {
     let album: String
     let albumId: String
     let artworkUrl: String
+    let coverId: String
     let duration: Int
     let year: String
     let trackNum: Int
@@ -25,6 +26,7 @@ struct CurrentTrack: Sendable {
         album = Util.string(record, "album") ?? ""
         albumId = Util.string(record, "album_id") ?? ""
         artworkUrl = Util.string(record, "artwork_url") ?? ""
+        coverId = Util.string(record, "coverid") ?? Util.string(record, "artwork_track_id") ?? ""
         duration = Util.int(record, "duration") ?? 0
         year = Util.string(record, "year") ?? ""
         trackNum = Util.int(record, "tracknum") ?? 1

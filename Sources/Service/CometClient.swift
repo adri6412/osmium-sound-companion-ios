@@ -9,17 +9,16 @@ final class CometClient: ObservableObject {
 
     private let session: URLSession
     private var cometURL: URL?
+    private var username = ""
+    private var password = ""
     private var clientId: String?
-    private var correlationId: Int = 0
+    private var messageId = 0
     private var isConnected = false
-    private var connectTask: Task<Void, Never>?
-    private var channelListeners: [String: [(([String: Any]) -> Void)]] = [:]
+    private var pollTask: Task<Void, Never>?
+    private var subscribedPlayerIds: Set<String> = []
 
     var onServerStatus: (([String: Any]) -> Void)?
     var onPlayerStatus: ((String, [String: Any]) -> Void)?
-    var onMenuStatus: ((String, [String: Any]) -> Void)?
-    var onDisplayStatus: ((String, [String: Any]) -> Void)?
-    var onHandshakeComplete: (([Player]) -> Void)?
     var onConnectionChanged: ((Bool) -> Void)?
 
     nonisolated init() {
@@ -31,20 +30,33 @@ final class CometClient: ObservableObject {
 
     func connect(to serverURL: URL, username: String = "", password: String = "") async throws {
         cometURL = serverURL.appendingPathComponent("cometd")
-        try await handshake(username: username, password: password)
+        self.username = username
+        self.password = password
+        subscribedPlayerIds = []
+        try await handshake()
+        startPolling()
     }
 
     func disconnect() {
-        connectTask?.cancel()
-        connectTask = nil
+        pollTask?.cancel()
+        pollTask = nil
         isConnected = false
         clientId = nil
+        subscribedPlayerIds = []
         onConnectionChanged?(false)
+    }
+
+    func subscribeToPlayer(_ playerId: String) async throws {
+        subscribedPlayerIds.insert(playerId)
+        guard let clientId else { return }
+        try await subscribe(response: "/\(clientId)/slim/playerstatus/\(playerId)",
+                            playerId: playerId,
+                            cmd: ["status", "-", "1", "subscribe:30", LyrionService.playerStatusTags])
     }
 
     // MARK: - Private
 
-    private func handshake(username: String, password: String) async throws {
+    private func handshake() async throws {
         guard let cometURL else { throw CometError.notConfigured }
 
         let handshake: [String: Any] = [
@@ -55,7 +67,7 @@ final class CometClient: ObservableObject {
             "advice": ["timeout": 60000, "interval": 0]
         ]
 
-        let response = try await post(cometURL, messages: [handshake], username: username, password: password)
+        let response = try await post(cometURL, messages: [handshake])
 
         guard let first = response.first,
               let successful = first["successful"] as? Bool, successful,
@@ -64,54 +76,53 @@ final class CometClient: ObservableObject {
         }
 
         clientId = cId
-        isConnected = true
-        onConnectionChanged?(true)
 
-        try await subscribeToServerStatus()
-        startPolling()
-    }
+        let metaSubscribe: [String: Any] = [
+            "channel": "/meta/subscribe",
+            "clientId": cId,
+            "subscription": "/\(cId)/**"
+        ]
+        _ = try? await post(cometURL, messages: [metaSubscribe])
 
-    private func subscribeToServerStatus() async throws {
-        guard let clientId else { return }
-        let responseChannel = "/\(clientId)/slim/serverstatus"
-        try await subscribe(channel: "/slim/subscribe", response: responseChannel,
+        try await subscribe(response: "/\(cId)/slim/serverstatus",
                             playerId: "",
                             cmd: ["serverstatus", "0", "255", "subscribe:60"])
+        for playerId in subscribedPlayerIds {
+            try await subscribeToPlayer(playerId)
+        }
+
+        isConnected = true
+        onConnectionChanged?(true)
     }
 
-    func subscribeToPlayer(_ playerId: String) async throws {
-        guard let clientId else { return }
-        let playerStatusChannel = "/\(clientId)/slim/playerstatus/\(playerId)"
-        try await subscribe(channel: "/slim/subscribe", response: playerStatusChannel,
-                            playerId: playerId,
-                            cmd: ["status", "-", "255", "menu:menu", "subscribe:30", "tags:aclKNoYLT"])
-    }
-
-    private func subscribe(channel: String, response: String,
-                           playerId: String = "", cmd: [String]) async throws {
+    private func subscribe(response: String, playerId: String, cmd: [String]) async throws {
         guard let cometURL, let clientId else { return }
+        messageId += 1
         let msg: [String: Any] = [
-            "channel": channel,
+            "channel": "/slim/subscribe",
             "clientId": clientId,
+            "id": String(messageId),
             "data": [
                 "response": response,
-                "request": [playerId, cmd] as [Any],
-                "clientId": clientId
+                "request": [playerId, cmd] as [Any]
             ] as [String: Any]
         ]
-        _ = try await post(cometURL, messages: [msg])
+        // LMS may answer the first result directly in this response instead of on the long-poll.
+        for message in try await post(cometURL, messages: [msg]) {
+            processMessage(message)
+        }
     }
 
     private func startPolling() {
-        connectTask?.cancel()
-        connectTask = Task { [weak self] in
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
             await self?.pollLoop()
         }
     }
 
     private func pollLoop() async {
-        guard let cometURL, let clientId else { return }
         while !Task.isCancelled && isConnected {
+            guard let cometURL, let clientId else { return }
             let connectMsg: [String: Any] = [
                 "channel": "/meta/connect",
                 "clientId": clientId,
@@ -120,44 +131,37 @@ final class CometClient: ObservableObject {
             ]
             do {
                 let messages = try await post(cometURL, messages: [connectMsg])
+                var sessionLost = false
                 for msg in messages {
-                    await processMessage(msg)
+                    if msg["channel"] as? String == "/meta/connect", msg["successful"] as? Bool == false {
+                        sessionLost = true
+                    }
+                    processMessage(msg)
                 }
-            } catch is CancellationError {
-                break
+                if sessionLost {
+                    try await Task.sleep(for: .seconds(2))
+                    try await handshake()
+                }
             } catch {
+                if Task.isCancelled { break }
                 try? await Task.sleep(for: .seconds(5))
             }
         }
     }
 
-    private func processMessage(_ msg: [String: Any]) async {
-        guard let channel = msg["channel"] as? String else { return }
-        let data = (msg["data"] as? [String: Any]) ?? [:]
+    private func processMessage(_ msg: [String: Any]) {
+        guard let channel = msg["channel"] as? String,
+              let data = msg["data"] as? [String: Any] else { return }
 
         if channel.hasSuffix("/slim/serverstatus") {
             onServerStatus?(data)
         } else if channel.contains("/slim/playerstatus/") {
             let playerId = String(channel.split(separator: "/").last ?? "")
             onPlayerStatus?(playerId, data)
-        } else if channel.contains("/slim/menustatus/") {
-            let playerId = String(channel.split(separator: "/").last ?? "")
-            onMenuStatus?(playerId, data)
-        } else if channel.contains("/slim/displaystatus/") {
-            let playerId = String(channel.split(separator: "/").last ?? "")
-            onDisplayStatus?(playerId, data)
         }
-
-        // Notify generic listeners
-        channelListeners[channel]?.forEach { $0(data) }
     }
 
-    func addListener(channel: String, handler: @escaping ([String: Any]) -> Void) {
-        channelListeners[channel, default: []].append(handler)
-    }
-
-    private func post(_ url: URL, messages: [[String: Any]],
-                      username: String = "", password: String = "") async throws -> [[String: Any]] {
+    private func post(_ url: URL, messages: [[String: Any]]) async throws -> [[String: Any]] {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

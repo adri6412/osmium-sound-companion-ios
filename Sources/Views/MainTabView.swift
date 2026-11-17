@@ -5,48 +5,47 @@ struct MainTabView: View {
     @State private var selectedTab = 0
     @State private var showNowPlaying = false
 
+    private let miniBarGap: CGFloat = 56
+    private var miniBarInset: CGFloat { service.activePlayer != nil ? 68 : 0 }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
-                HomeMenuView()
-                    .tabItem {
-                        Label("Home", systemImage: "house.fill")
-                    }
+                tab(HomeMenuView())
+                    .tabItem { Label("Home", systemImage: "house.fill") }
                     .tag(0)
 
-                SearchView()
-                    .tabItem {
-                        Label("Search", systemImage: "magnifyingglass")
-                    }
+                tab(SearchView())
+                    .tabItem { Label("Search", systemImage: "magnifyingglass") }
                     .tag(1)
 
-                CurrentPlaylistView()
-                    .tabItem {
-                        Label("Queue", systemImage: "list.bullet")
-                    }
+                tab(CurrentPlaylistView())
+                    .tabItem { Label("Queue", systemImage: "list.bullet") }
                     .tag(2)
 
-                PlayerListView()
-                    .tabItem {
-                        Label("Players", systemImage: "speaker.wave.3.fill")
-                    }
+                tab(PlayerListView())
+                    .tabItem { Label("Players", systemImage: "speaker.wave.3.fill") }
                     .tag(3)
 
-                SettingsView()
-                    .tabItem {
-                        Label("Settings", systemImage: "gearshape.fill")
-                    }
+                tab(SettingsView())
+                    .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                     .tag(4)
             }
 
-            // Mini Now Playing bar
-            if service.currentTrack != nil {
+            if service.activePlayer != nil {
                 MiniNowPlayingBar(onTap: { showNowPlaying = true })
-                    .padding(.bottom, 49) // above tab bar
+                    .padding(.bottom, miniBarGap)
             }
         }
         .sheet(isPresented: $showNowPlaying) {
             NowPlayingView()
+        }
+    }
+
+    // Keeps scrollable content clear of the mini player floating above the tab bar
+    private func tab(_ content: some View) -> some View {
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: miniBarInset)
         }
     }
 }

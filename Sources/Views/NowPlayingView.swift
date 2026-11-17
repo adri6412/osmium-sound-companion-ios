@@ -74,7 +74,7 @@ struct NowPlayingView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     NavigationLink {
-                        CurrentPlaylistView()
+                        QueueListView()
                     } label: {
                         Image(systemName: "list.bullet")
                     }
@@ -135,13 +135,14 @@ struct SeekBar: View {
             let elapsed = Date.now.timeIntervalSince(lastServerDate)
             localTime = min(lastServerTime + elapsed, Double(service.currentTrackDuration))
         }
-        .onChange(of: service.currentTimeSecond) {
+        .onChange(of: service.statusRevision) {
             lastServerTime = service.currentTimeSecond
             lastServerDate = .now
             localTime = service.currentTimeSecond
         }
         .onAppear {
             lastServerTime = service.currentTimeSecond
+            lastServerDate = .now
             localTime = service.currentTimeSecond
         }
     }
@@ -245,10 +246,10 @@ struct MiniNowPlayingBar: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(service.currentTrack?.title ?? "")
+                    Text(service.currentTrack?.title ?? "Not Playing")
                         .font(.subheadline).bold()
                         .lineLimit(1)
-                    Text(service.currentTrack?.artist ?? "")
+                    Text(service.currentTrack?.artist ?? service.activePlayer?.name ?? "")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
