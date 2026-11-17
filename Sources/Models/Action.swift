@@ -32,7 +32,7 @@ struct Action: Sendable {
     }
 }
 
-struct AnyCodable: Sendable {
+struct AnyCodable: @unchecked Sendable {
     let value: Any
 
     init(_ value: Any) {
@@ -40,7 +40,7 @@ struct AnyCodable: Sendable {
     }
 }
 
-struct SlimCommand: Sendable {
+struct SlimCommand: @unchecked Sendable {
     let player: String?
     let cmd: [String]
     let params: [String: Any]

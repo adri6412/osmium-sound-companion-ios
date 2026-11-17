@@ -2,7 +2,7 @@ import Foundation
 
 // REST client for the Osmium appliance API (port 8080)
 // Used for DSP control, firmware updates, backup/restore, system info
-final class ApplianceHttpClient: Sendable {
+final class ApplianceHttpClient: @unchecked Sendable {
 
     private let session: URLSession
     private var baseURL: URL?

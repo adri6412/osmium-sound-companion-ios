@@ -16,6 +16,7 @@ targets:
     settings:
       base:
         SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: minimal
         TARGETED_DEVICE_FAMILY: "1,2"
         PRODUCT_BUNDLE_IDENTIFIER: com.osmium.sound.companion
         MARKETING_VERSION: "1.0.0"

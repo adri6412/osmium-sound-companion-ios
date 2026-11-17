@@ -148,10 +148,8 @@ final class LyrionService {
 
     func fetchItems(action: Action, start: Int = 0, count: Int = 100) async throws -> (items: [JiveItem], total: Int) {
         guard let player = activePlayer else { return ([], 0) }
-        var cmd = action.cmd
+        let cmd = action.cmd
         if cmd.isEmpty { return ([], 0) }
-        // Append standard paging parameters
-        let params = ["start": start, "itemsPerResponse": count] as [String: Any]
         let results = try await comet.request(playerId: player.id, cmd: cmd)
         return parseJiveItems(from: results.first ?? [:])
     }
