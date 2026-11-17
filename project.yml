@@ -35,6 +35,8 @@ targets:
         NSLocalNetworkUsageDescription: "Needed to connect to the Lyrion Music Server on your local network."
         NSBonjourServices:
           - "_squeezenetwork._tcp"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations: {}
