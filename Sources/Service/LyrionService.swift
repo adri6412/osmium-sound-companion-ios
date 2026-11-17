@@ -74,8 +74,25 @@ final class LyrionService {
 
     func setActivePlayer(_ player: Player) {
         activePlayer = player
-        Task { try? await comet.subscribeToPlayer(player.id) }
+        Task {
+            try? await comet.subscribeToPlayer(player.id)
+            await loadInitialPlayerStatus(player: player)
+        }
         syncFromActivePlayer()
+    }
+
+    private func loadInitialPlayerStatus(player: Player) async {
+        do {
+            let data = try await rpc.request(playerId: player.id,
+                                             cmd: ["status", "0", "1", "tags:aclKNoYLT"])
+            player.playerState.update(from: data)
+            if player.id == activePlayer?.id {
+                syncFromActivePlayer()
+                if let loop = data["playlist_loop"] as? [[String: Any]], let first = loop.first {
+                    currentTrack = CurrentTrack(record: first)
+                }
+            }
+        } catch {}
     }
 
     func togglePausePlay() {
@@ -198,7 +215,12 @@ final class LyrionService {
 
     func doAction(_ action: Action, item: JiveItem? = nil) {
         guard let player = activePlayer else { return }
-        Task { try? await sendPlayerCommand(player: player.id, cmd: action.cmd) }
+        Task {
+            try? await sendPlayerCommand(player: player.id, cmd: action.cmd)
+            // Refresh track info after a short delay to reflect the new playback state
+            try? await Task.sleep(for: .milliseconds(800))
+            await loadInitialPlayerStatus(player: player)
+        }
     }
 
     // MARK: - Alarms
