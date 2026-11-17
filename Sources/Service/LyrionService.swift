@@ -151,16 +151,33 @@ final class LyrionService {
 
     func fetchItems(action: Action, start: Int = 0, count: Int = 100) async throws -> (items: [JiveItem], total: Int) {
         guard let player = activePlayer else { return ([], 0) }
-        let cmd = action.cmd
+        var cmd = action.cmd
         if cmd.isEmpty { return ([], 0) }
+        // Replace positional start/count if present (indices 1 and 2)
+        if cmd.count >= 3, Int(cmd[1]) != nil, Int(cmd[2]) != nil {
+            cmd[1] = "\(start)"
+            cmd[2] = "\(count)"
+        }
         let data = try await rpc.request(playerId: player.id, cmd: cmd)
         return parseJiveItems(from: data)
     }
 
     func fetchHomeMenu() async throws -> [JiveItem] {
-        let data = try await rpc.request(cmd: ["menu", "0", "100", "menu:menu"])
-        let (items, _) = parseJiveItems(from: data)
-        return items
+        // Build static library sections using standard LMS browse commands
+        // (the Jive 'menu' command only works with SqueezeOS/Jive-registered players)
+        func item(_ id: String, _ name: String, _ type: String, cmd: [String]) -> JiveItem {
+            JiveItem(record: [
+                "id": id, "name": name, "type": type,
+                "actions": ["go": ["cmd": cmd] as [String: Any]]
+            ])
+        }
+        return [
+            item("albums",    "Albums",    "album",    cmd: ["albums",    "0", "100", "tags:lajKAS"]),
+            item("artists",   "Artists",   "artist",   cmd: ["artists",   "0", "100", "tags:s"]),
+            item("genres",    "Genres",    "genre",    cmd: ["genres",    "0", "100"]),
+            item("titles",    "Tracks",    "music",    cmd: ["titles",    "0", "100", "tags:aclKNoYLT"]),
+            item("playlists", "Playlists", "playlist", cmd: ["playlists", "0", "100"]),
+        ]
     }
 
     func fetchCurrentPlaylist(start: Int = 0) async throws -> (songs: [Song], total: Int) {
