@@ -42,7 +42,7 @@ struct HomeMenuView: View {
             }
         }
         .task { await loadItems() }
-        .onChange(of: service.activePlayer?.id) { await loadItems() }
+        .onChange(of: service.activePlayer?.id) { _ in Task { await loadItems() } }
     }
 
     private func loadItems() async {
