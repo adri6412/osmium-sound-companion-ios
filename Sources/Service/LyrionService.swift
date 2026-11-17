@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 
 @MainActor
 @Observable
@@ -28,6 +27,7 @@ final class LyrionService {
     var currentTrackDuration: Int = 0
 
     private let comet = CometClient()
+    private let rpc = LmsRpcClient()
     private let applianceClient = ApplianceHttpClient()
     private var connectTask: Task<Void, Never>?
 
@@ -44,11 +44,14 @@ final class LyrionService {
             return
         }
         serverURL = url
+        rpc.configure(baseURL: url, username: username, password: password)
         isConnecting = true
         connectionError = nil
         connectTask = Task {
             do {
                 try await comet.connect(to: url, username: username, password: password)
+                // Load initial server status synchronously via JSON-RPC
+                await self.loadInitialServerStatus()
             } catch {
                 self.isConnecting = false
                 self.connectionError = error.localizedDescription
@@ -150,22 +153,20 @@ final class LyrionService {
         guard let player = activePlayer else { return ([], 0) }
         let cmd = action.cmd
         if cmd.isEmpty { return ([], 0) }
-        let results = try await comet.request(playerId: player.id, cmd: cmd)
-        return parseJiveItems(from: results.first ?? [:])
+        let data = try await rpc.request(playerId: player.id, cmd: cmd)
+        return parseJiveItems(from: data)
     }
 
     func fetchHomeMenu() async throws -> [JiveItem] {
-        let results = try await comet.request(cmd: ["menu", "0", "100", "menu:menu"])
-        guard let data = results.first else { return [] }
+        let data = try await rpc.request(cmd: ["menu", "0", "100", "menu:menu"])
         let (items, _) = parseJiveItems(from: data)
         return items
     }
 
     func fetchCurrentPlaylist(start: Int = 0) async throws -> (songs: [Song], total: Int) {
         guard let player = activePlayer else { return ([], 0) }
-        let results = try await comet.request(playerId: player.id,
-                                              cmd: ["status", "\(start)", "100", "tags:aclKNoYLT"])
-        guard let data = results.first else { return ([], 0) }
+        let data = try await rpc.request(playerId: player.id,
+                                         cmd: ["status", "\(start)", "100", "tags:aclKNoYLT"])
         let loop = (data["playlist_loop"] as? [[String: Any]]) ?? []
         let songs = loop.map { Song(record: $0) }
         let total = Util.int(data, "playlist_tracks") ?? songs.count
@@ -173,8 +174,7 @@ final class LyrionService {
     }
 
     func fetchAlbums(start: Int = 0) async throws -> [JiveItem] {
-        let results = try await comet.request(cmd: ["albums", "\(start)", "100", "tags:lajKAS"])
-        guard let data = results.first else { return [] }
+        let data = try await rpc.request(cmd: ["albums", "\(start)", "100", "tags:lajKAS"])
         let (items, _) = parseJiveItems(from: data)
         return items
     }
@@ -188,10 +188,9 @@ final class LyrionService {
 
     func fetchAlarms(start: Int = 0) async throws -> [Alarm] {
         guard let player = activePlayer else { return [] }
-        let results = try await comet.request(playerId: player.id,
-                                              cmd: ["alarms", "\(start)", "100", "filter:all"])
-        guard let data = results.first,
-              let loop = data["alarms_loop"] as? [[String: Any]] else { return [] }
+        let data = try await rpc.request(playerId: player.id,
+                                         cmd: ["alarms", "\(start)", "100", "filter:all"])
+        guard let loop = data["alarms_loop"] as? [[String: Any]] else { return [] }
         return loop.map { Alarm(record: $0) }
     }
 
@@ -214,15 +213,15 @@ final class LyrionService {
     // MARK: - Server Admin
 
     func rescanLibrary() {
-        Task { try? await comet.request(cmd: ["rescan"]) }
+        Task { try? await rpc.request(cmd: ["rescan"]) }
     }
 
     func stopServer() {
-        Task { try? await comet.request(cmd: ["stopserver"]) }
+        Task { try? await rpc.request(cmd: ["stopserver"]) }
     }
 
     func restartServer() {
-        Task { try? await comet.request(cmd: ["restartserver"]) }
+        Task { try? await rpc.request(cmd: ["restartserver"]) }
     }
 
     func playlistClear() {
@@ -274,7 +273,14 @@ final class LyrionService {
     // MARK: - Private Helpers
 
     private func sendPlayerCommand(player: String, cmd: [String]) async throws {
-        _ = try await comet.request(playerId: player, cmd: cmd)
+        _ = try await rpc.request(playerId: player, cmd: cmd)
+    }
+
+    private func loadInitialServerStatus() async {
+        do {
+            let data = try await rpc.request(cmd: ["serverstatus", "0", "255"])
+            handleServerStatus(data)
+        } catch {}
     }
 
     private func setupCometCallbacks() {

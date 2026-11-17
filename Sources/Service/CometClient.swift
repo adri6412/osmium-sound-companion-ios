@@ -102,32 +102,6 @@ final class CometClient: ObservableObject {
         _ = try await post(cometURL, messages: [msg])
     }
 
-    // One-shot request to LMS — LMS returns the response in the same HTTP reply
-    func request(playerId: String = "", cmd: [String], params: [Any] = []) async throws -> [[String: Any]] {
-        guard let cometURL, let clientId else { throw CometError.notConnected }
-        correlationId += 1
-        let responseChannel = "/\(clientId)/slim/request/\(correlationId)"
-        let msg: [String: Any] = [
-            "channel": "/slim/request",
-            "clientId": clientId,
-            "data": [
-                "response": responseChannel,
-                "request": [playerId, cmd] as [Any],
-                "clientId": clientId
-            ] as [String: Any]
-        ]
-        let responses = try await post(cometURL, messages: [msg])
-        // LMS echoes the response on responseChannel in the same HTTP reply
-        for response in responses {
-            if let ch = response["channel"] as? String, ch == responseChannel,
-               let data = response["data"] as? [String: Any] {
-                return [data]
-            }
-        }
-        // Fallback: any dict under "data"
-        return responses.compactMap { $0["data"] as? [String: Any] }
-    }
-
     private func startPolling() {
         connectTask?.cancel()
         connectTask = Task { [weak self] in
